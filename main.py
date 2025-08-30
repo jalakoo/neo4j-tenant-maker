@@ -1,11 +1,14 @@
 from neo4j import GraphDatabase
-from typing import Union, List, Dict
+from typing import Union, List, Dict, Optional
 from wonderwords import RandomWord
 from dotenv import load_dotenv
 import os
 import re
 import argparse
 import sys
+import csv
+import time
+from functools import wraps
 
 load_dotenv()
 
@@ -30,6 +33,19 @@ def generate_password() -> str:
     noun = rw.word(include_parts_of_speech=["noun"])
     return f"{adjective}-{noun}"
 
+def time_execution(func):
+    """Decorator to measure and print function execution time."""
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        start_time = time.perf_counter()
+        result = func(*args, **kwargs)
+        end_time = time.perf_counter()
+        elapsed = end_time - start_time
+        print(f"\n{func.__name__} completed in {elapsed:.2f} seconds")
+        return result
+    return wrapper
+
+@time_execution
 def provision_users(emails: Union[str, List[str]]) -> List[Dict[str, str]]:
     """
     Provision one or more users:
@@ -92,6 +108,7 @@ def provision_users(emails: Union[str, List[str]]) -> List[Dict[str, str]]:
 
     return results
 
+@time_execution
 def remove_users(emails: Union[str, List[str]]) -> List[Dict[str, str]]:
     """
     Remove one or more users:
@@ -128,17 +145,33 @@ def remove_users(emails: Union[str, List[str]]) -> List[Dict[str, str]]:
 
     return results
 
+def read_emails_from_csv(file_path: str) -> List[str]:
+    """Read email addresses from a CSV file with an 'email' column."""
+    try:
+        with open(file_path, 'r') as f:
+            reader = csv.DictReader(f)
+            if 'email' not in reader.fieldnames:
+                raise ValueError("CSV file must contain an 'email' column")
+            return [row['email'] for row in reader if row.get('email').strip()]
+    except Exception as e:
+        print(f"Error reading CSV file: {e}")
+        raise
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Manage Neo4j tenant users')
     subparsers = parser.add_subparsers(dest='command', help='Command to execute')
     
     # Create the parser for the "add" command
     add_parser = subparsers.add_parser('add', help='Add new users')
-    add_parser.add_argument('emails', nargs='+', help='List of email addresses to add')
+    add_group = add_parser.add_mutually_exclusive_group(required=True)
+    add_group.add_argument('--emails', nargs='+', help='List of email addresses to add')
+    add_group.add_argument('--csv', help='Path to CSV file containing email addresses to add')
     
     # Create the parser for the "remove" command
     remove_parser = subparsers.add_parser('remove', help='Remove existing users')
-    remove_parser.add_argument('emails', nargs='+', help='List of email addresses to remove')
+    remove_group = remove_parser.add_mutually_exclusive_group(required=True)
+    remove_group.add_argument('--emails', nargs='+', help='List of email addresses to remove')
+    remove_group.add_argument('--csv', help='Path to CSV file containing email addresses to remove')
 
     # If no arguments, show help
     if len(sys.argv) == 1:
@@ -147,23 +180,38 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    if args.command == 'add':
-        print(f"Adding users: {', '.join(args.emails)}")
-        output = provision_users(args.emails)
-        print("\nSuccessfully provisioned users:")
-        for entry in output:
-            print(f"Email: {entry['email']}")
-            print(f"  Username: {entry['user_name']}")
-            print(f"  Database: {entry['db_name']}")
-            print(f"  Password: {entry['password']}")
-    
-    elif args.command == 'remove':
-        print(f"Removing users: {', '.join(args.emails)}")
-        output = remove_users(args.emails)
-        print("\nSuccessfully removed users:")
-        for entry in output:
-            print(f"Email: {entry['email']} (Database: {entry['db_name']})")
-    
-    else:
-        parser.print_help()
+    try:
+        # Handle CSV input if provided
+        if hasattr(args, 'csv') and args.csv:
+            emails = read_emails_from_csv(args.csv)
+        else:
+            emails = args.emails
+
+        if not emails:
+            print("No valid email addresses provided")
+            sys.exit(1)
+
+        if args.command == 'add':
+            print(f"Adding users: {', '.join(emails)}" if len(emails) < 5 else f"Adding {len(emails)} users from file")
+            output = provision_users(emails)
+            print("\nSuccessfully provisioned users:")
+            for entry in output:
+                print(f"Email: {entry['email']}")
+                print(f"  Username: {entry['user_name']}")
+                print(f"  Database: {entry['db_name']}")
+                print(f"  Password: {entry['password']}")
+        
+        elif args.command == 'remove':
+            print(f"Removing users: {', '.join(emails)}" if len(emails) < 5 else f"Removing {len(emails)} users from file")
+            output = remove_users(emails)
+            print("\nSuccessfully removed users:")
+            for entry in output:
+                print(f"Email: {entry['email']} (Database: {entry['db_name']})")
+        
+        else:
+            parser.print_help()
+            sys.exit(1)
+
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)

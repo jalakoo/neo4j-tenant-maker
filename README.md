@@ -16,13 +16,28 @@ uv sync
 
 # Usage
 
-Adding users:
+Adding single users:
 ```bash
-uv run python main.py add user1@example.com user2@example.org
+uv run python main.py add --emails user1@example.com user2@example.org
 ```
 
-Removing users:
+Removing single users:
 ```bash
-uv run python main.py remove user1@example.com user2@example.org
+uv run python main.py remove --emails user1@example.com user2@example.org
 ```
 
+Adding users from a CSV file:
+```bash
+uv run python main.py add --csv sample.csv
+```
+
+Removing users from a CSV file:
+```bash
+uv run python main.py remove --csv sample.csv
+```
+
+## Generating a CSV file of mock emails
+For testing purposes, you can generate a CSV file of mock emails using the `generate_emails.py` script. Below example generates 10 random emails and saves to `emails.csv` (default filename):
+```bash
+uv run python generate_emails.py 10 -o emails.csv
+```
